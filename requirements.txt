@@ -1,0 +1,5 @@
+openai-whisper
+speechrecognition
+pyaudio
+pyttsx3
+ollama
