@@ -39,11 +39,12 @@ class ActionRouter :
                 return f"You want me to search '{query}' on YouTube — {modifier}. Correct?"
             return f"You want me to open YouTube and search for '{query}'. Correct?"
 
-        elif platform == "spotify":
-            song = content or target or "something"
+        elif intent in ["play music","play track","play_media"]:
+            song = content 
+            artist = target if target else ""
             if modifier:
-                return f"You want me to play '{song}' on Spotify — {modifier}. Shall I?"
-            return f"You want me to play '{song}' on Spotify. Shall I?"
+                return f"You want me to play '{song}' on Spotify by  {artist}. Shall I?"
+            return f"You want me to play '{song}' on Spotify by {artist}. Shall I?"
         
         elif intent == "open_app":
             app = target or content or "an app"
@@ -71,7 +72,10 @@ class ActionRouter :
         print(f"Router Routing command: {intent} -> {platform}")
         if intent == "schedule_meeting" or platform == "calendar":
             self._handle_calender(params)
-        elif intent in ["play music","play track"] or platform =="spotify" :
+
+        elif intent in ["play music","play track","play_media"] or platform =="spotify" :
+               if platform =="unknown" :
+                   platform = "spotify"
                self._handle_spotify(params)
 
     def _handle_calender(self,params:dict) : 
