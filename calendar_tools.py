@@ -1,6 +1,6 @@
 import os 
 import json 
-from datetime import datetime , timedata 
+from datetime import datetime , timedelta 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -9,7 +9,7 @@ from googleapiclient.discovery import build
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 TOKEN_FILE = "token.json"
 CREDS_FILE = "credentials.json"
-TIMEZONE   = "Asia/Delhi"
+TIMEZONE   = "Asia/Kolkata"
 
 
 def _get_service() : 
@@ -57,7 +57,7 @@ def create_event(
     
     try : 
         start_dt = datetime.strptime(f"{date} {time_str}" ,"%Y-%m-%d %H:%M")
-        end_dt = start_dt + timedata(minutes = duration_minutes)
+        end_dt = start_dt + timedelta(minutes = duration_minutes)
 
     except ValueError : 
         return {
@@ -92,7 +92,7 @@ def create_event(
     try : 
         service = _get_service()
         event = service.events().insert(
-            calenderId = "primary",
+            calendarId = "primary",
             body = event_body , 
             sendUpdates = "all" if attendees else "none"
         ).execute()
