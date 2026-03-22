@@ -2,6 +2,7 @@ import spotipy
 from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
 import os 
+import random
 
 load_dotenv()
 
@@ -10,18 +11,15 @@ SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIPY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 
 def play_on_spotify(search_query: str) -> dict:
-
     if not search_query:
-            return {"success": False, "message": "No song provided."}
+        return {"success": False, "message": "No song provided."}
 
     try:
         # Request permission to read devices and modify playback
         scope = (
-    "user-read-playback-state,"
-    "user-modify-playback-state,"
-    "playlist-read-private,"       # ← add this
-    "playlist-read-collaborative"  # ← and this
-)
+            "user-read-playback-state,"
+            "user-modify-playback-state"
+        )
         
         auth_manager = SpotifyOAuth(
              client_id=SPOTIFY_CLIENT_ID,
@@ -32,92 +30,95 @@ def play_on_spotify(search_query: str) -> dict:
         )
 
         sp = spotipy.Spotify(auth_manager=auth_manager)
-        result = sp.search(q=search_query,type='track',limit=10)
-        tracks = result.get('tracks',{}).get('items',[])
+        
+        # --- 1. SEARCH FOR TRACK ---
+        result = sp.search(q=search_query, type='track', limit=10)
+        tracks = result.get('tracks', {}).get('items', [])
 
-        if not tracks : 
-             return {"success":False , "message" : f"Could not find the {search_query} on Spotify"}
-        track_uri = tracks[0]['uri']
-        track_name = tracks[0]['name']
-        artist_name = tracks[0]['artists'][0]['name']
+        if not tracks: 
+            return {"success": False, "message": f"Could not find '{search_query}' on Spotify."}
+        
+        best_track = pick_best_track(tracks, search_query)
+        track_uri = best_track['uri']
+        track_name = best_track['name']
+        artist_name = best_track['artists'][0]['name']
 
+        # --- 2. FIND ACTIVE DEVICE ---
         devices = sp.devices()
-        print(f'printed the devices {devices}')
+        print(f"  [Spotify] Devices found: {len(devices.get('devices', []))}")
 
-        active_devices = [d for d in devices['devices'] if d['is_active']]
+        active_devices = [d for d in devices.get('devices', []) if d.get('is_active')]
 
-        if not devices['devices']:
+        if not devices.get('devices'):
              return {"success": False, "message": "No Spotify devices found. Open Spotify first."}
         
         device_id = active_devices[0]['id'] if active_devices else devices['devices'][0]['id']
 
-
-        best_track = pick_best_track(tracks, search_query)
-        artist_id   = best_track["artists"][0]["id"]
-        artist_info = sp.artist(artist_id)
-        genres      = artist_info.get("genres", [])
-
-        print(f"  [Spotify] Genres detected: {genres}")
-
-        # ── Step 3: find a genre playlist ────────────────────
-        # try each detected genre until we find a playlist
-        # replace your playlist fetch loop with this:
-        playlist_uri  = None
-        playlist_name = None
-        genre_used    = None
-
-        # --- 4. FIND A MATCHING PLAYLIST ---
-        for genre in genres:
-            print(f"  [Spotify] Searching playlist for: '{genre}'")
-            pl_results = sp.search(q=genre, type="playlist", limit=5) 
-            playlists  = [p for p in pl_results.get("playlists", {}).get("items", []) if p]
-
+        # --- 3. EXECUTE PLAYBACK & QUEUE (The Search Bypass) ---
+        sp.start_playback(device_id=device_id, uris=[track_uri])
+        print(f"  [Spotify] Playing {track_name}. Fetching radio mix...")
+        
+        valid_tracks = []
+        
+        # Step A: Try to find and read a Radio playlist
+        try:
+            pl_search = sp.search(q=f"{artist_name} Radio", type='playlist', limit=5)
+            playlists = pl_search.get('playlists', {}).get('items', [])
+            
+            radio_uri = None
             for pl in playlists:
-                if pl.get("public") is False:
-                    continue
+                if pl and pl.get('uri'): 
+                    radio_uri = pl['uri']
+                    print(f"  [Spotify] Found Playlist: {pl.get('name')}")
+                    break
+                    
+            if radio_uri:
+                # If this throws a 403 Forbidden, it will safely drop to the except block below
+                pl_data = sp.playlist_tracks(radio_uri, limit=30)
+                for item in pl_data.get('items', []):
+                    track = item.get('track')
+                    if track and track.get('uri') and track.get('uri') != track_uri:
+                        valid_tracks.append(track)
+                        
+        except Exception as playlist_err:
+            print(f"  [Spotify] API blocked reading playlist. Skipping to fallback.")
+            # valid_tracks remains empty, which safely triggers Step B!
+            
+        # Step B & C & D: The safe fallback and queueing
+        try:
+            # If Step A failed or returned nothing, do the safe artist search
+            if not valid_tracks:
+                print("  [Spotify] Falling back to guaranteed artist tracks...")
+                artist_search = sp.search(q=f'artist:"{artist_name}"', type='track', limit=10)
+                artist_tracks = artist_search.get('tracks', {}).get('items', [])
+                valid_tracks = [t for t in artist_tracks if t and t.get('uri') and t.get('uri') != track_uri]
+            
+            # Shuffle the tracks
+            random.shuffle(valid_tracks)
+            
+            queued_count = 0
+            MAX_SONGS_TO_QUEUE = 10 
+            
+            for track in valid_tracks:
                 try:
-                    test = sp.playlist_tracks(pl["uri"], limit=1)
-                    if test.get("items"):
-                        playlist_uri  = pl["uri"]
-                        playlist_name = pl["name"]
-                        genre_used    = genre
-                        print(f"  [Spotify] Found valid playlist: '{playlist_name}'")
+                    sp.add_to_queue(uri=track['uri'], device_id=device_id)
+                    queued_count += 1
+                    if queued_count >= MAX_SONGS_TO_QUEUE:
                         break
-                except Exception:
-                    continue
-            
-            # If we found a valid playlist in the inner loop, break the outer loop too
-            if playlist_uri:
-                break 
-
-        # --- 5. EXECUTE PLAYBACK ---
-        if playlist_uri:
-            # First, start playback of the specific requested song
-            sp.start_playback(device_id=device_id, uris=[track_uri])
-            
-            # Note: Spotify API doesn't easily let you force a playlist into the queue securely 
-            # without interrupting the current song. So we play the song, and rely on 
-            # Spotify's native "Autoplay" feature to keep the music going.
-            
-            try:
-                sp.shuffle(state=True, device_id=device_id)
-            except Exception:
-                pass # Some devices (like web player) reject shuffle commands
-                
+                except Exception as q_err:
+                    print(f"  [Spotify] Skipped queue item: {q_err}")
+                        
             return {
                 "success": True,
-                "message": f"Playing {track_name} by {artist_name}. Found {genre_used} vibes."
+                "message": f"Playing {track_name}. Queued {queued_count} tracks."
             }
             
-        else:
-            # Last resort — just play the single track
-            print(f"DIdnt get the plalysit buddy ")
-            sp.start_playback(device_id=device_id, uris=[track_uri])
+        except Exception as e:
+            print(f"  [Spotify] Queue error: {e}")
             return {
                 "success": True,
                 "message": f"Playing {track_name} by {artist_name}."
             }
-
     except Exception as e:
         error = str(e)
         print(f"  [Spotify Error]: {error}")
