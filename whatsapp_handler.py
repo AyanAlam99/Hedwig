@@ -3,7 +3,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 import os 
 
-def load_google_contacts() -> dict:
+def load_google_contacts()-> dict:
     try : 
         scopes = ["https://www.googleapis.com/auth/contacts.readonly"]
 

@@ -1,9 +1,17 @@
 import json
+import pywhatkit
+from datetime import datetime
+import re 
 from calendar_tools import create_event
 from spotify_handler import play_on_spotify
 from speech_to_text import NLUParser ,SpeechToText
+from whatsapp_handler import load_google_contacts
 
 class ActionRouter : 
+
+
+    def __init__(self) :
+        self.contacts = load_google_contacts()
 
     def generate_confirmation_prompt(self,intent_data: dict) -> str:
         intent   = intent_data.get("intent", "unknown")
@@ -60,23 +68,19 @@ class ActionRouter :
             if detail:
                 return f"You want me to {action} — {detail}. Is that right?"
             return f"You want me to {action}. Is that right?"
-    
-    def execute(self, intent_data : dict)  :
-        if not intent_data : 
-            return f"no intent data found"
         
-        intent = intent_data.get("intent")
-        platform = intent_data.get("platform")
-        params = intent_data.get("parameters", {})
 
-        print(f"Router Routing command: {intent} -> {platform}")
-        if intent == "schedule_meeting" or platform == "calendar":
-            self._handle_calender(params)
-
-        elif intent in ["play music","play track","play_media"] or platform =="spotify" :
-               if platform =="unknown" :
-                   platform = "spotify"
-               self._handle_spotify(params)
+    def _find_contact(self,name:str) ->str |None : 
+        name_to_check = name.lower()
+        if name_to_check in self.contacts:
+            return self.contacts[name_to_check]
+        print(f"ALL CONTACTS {self.contacts}")
+        
+        for saved_name, number in self.contacts.items():
+            if name_to_check in saved_name or saved_name in name_to_check:
+                print(f"  [Contacts] Matched '{name}' → '{saved_name}'")
+                return number
+        return None
 
     def _handle_calender(self,params:dict) : 
 
@@ -116,6 +120,71 @@ class ActionRouter :
             print(f"SUCCESS: {result['message']}")
         else:
             print(f"FAILED: {result['message']}")
+
+
+    def _handle_whatsapp(self,params : dict) : 
+        contact =  params.get("target","").strip()
+        message = params.get("content","").strip()
+
+        if not contact:
+            print("  [WhatsApp] No contact specified.")
+            return
+
+        if not message:
+            print("  [WhatsApp] No message specified.")
+            return
+        
+        phone = self._find_contact(contact)
+
+        if not phone:
+            print(f"  [WhatsApp] '{contact}' not found in contacts.")
+            return
+        
+        now = datetime.now()
+
+        send_hour = now.hour
+        send_min = now.minute + 1
+
+        print(f"  [WhatsApp] Sending '{message}' to {contact} ({phone})")
+
+        try : 
+            pywhatkit.sendwhatmsg(
+                phone_no=phone,
+                message=message,
+                time_hour=send_hour,
+                time_min=send_min,
+                wait_time=15,
+                tab_close=False,
+                close_time=3
+            )
+            print(f"WhatsApp message sent to {contact}")
+        except Exception as e :
+            print(f"Whatsapp error {e}")
+
+
+    def execute(self, intent_data : dict)  :
+        if not intent_data : 
+            return f"no intent data found"
+        
+        intent = intent_data.get("intent")
+        platform = intent_data.get("platform")
+        params = intent_data.get("parameters", {})
+
+        print(f"Router Routing command: {intent} -> {platform}")
+        if intent == "schedule_meeting" or platform == "calendar":
+            self._handle_calender(params)
+
+        elif intent in ["play music","play track","play_media"] or platform =="spotify" :
+               if platform =="unknown" :
+                   platform = "spotify"
+               self._handle_spotify(params)
+        elif intent == "send_message" and platform == "whatsapp":  
+             if platform =="general" :
+                   platform = "whatsapp"
+             self._handle_whatsapp(params)
+        
+
+
 
 if __name__ == "__main__": 
     
