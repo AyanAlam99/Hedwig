@@ -6,6 +6,11 @@ from calendar_tools import create_event
 from spotify_handler import play_on_spotify
 from speech_to_text import NLUParser ,SpeechToText
 from whatsapp_handler import load_google_contacts
+import webbrowser
+import time
+import urllib.parse
+import pyautogui
+import pyperclip
 
 class ActionRouter : 
 
@@ -140,27 +145,24 @@ class ActionRouter :
             print(f"  [WhatsApp] '{contact}' not found in contacts.")
             return
         
-        now = datetime.now()
+        phone_clean = phone.replace("+", "").replace(" ", "")
+        encoded_msg = urllib.parse.quote(message)
 
-        send_hour = now.hour
-        send_min = now.minute + 1
+        # WhatsApp Web direct message URL — opens chat directly
+        url = f"https://web.whatsapp.com/send?phone={phone_clean}&text={encoded_msg}"
 
-        print(f"  [WhatsApp] Sending '{message}' to {contact} ({phone})")
+        print(f"  [WhatsApp] Opening chat with {contact}...")
 
-        try : 
-            pywhatkit.sendwhatmsg(
-                phone_no=phone,
-                message=message,
-                time_hour=send_hour,
-                time_min=send_min,
-                wait_time=15,
-                tab_close=False,
-                close_time=3
-            )
-            print(f"WhatsApp message sent to {contact}")
-        except Exception as e :
-            print(f"Whatsapp error {e}")
+        # open in existing browser window — won't duplicate if already open
+        webbrowser.open(url)
 
+        # wait for WhatsApp Web to load the chat
+        time.sleep(8)
+
+        # press Enter to send — message is already filled in the URL
+        pyautogui.press("enter")
+
+        print(f"  ✅ Message sent to {contact}")
 
     def execute(self, intent_data : dict)  :
         if not intent_data : 
