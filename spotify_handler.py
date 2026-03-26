@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import os 
 import random
 
+from thefuzz import fuzz
 load_dotenv()
 
 SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
@@ -45,12 +46,19 @@ def play_on_spotify(search_query: str) -> dict:
 
         # --- 2. FIND ACTIVE DEVICE ---
         devices = sp.devices()
+
+        if not devices.get('devices'):
+            launch_success = ensure_spotify_open(sp)
+            if launch_success:
+                # Refresh the devices list now that the app is open
+                devices = sp.devices()
+            else:
+                return {"success": False, "message": "Could not open Spotify automatically. Please open it manually."}
+            
         print(f"  [Spotify] Devices found: {len(devices.get('devices', []))}")
 
         active_devices = [d for d in devices.get('devices', []) if d.get('is_active')]
 
-        if not devices.get('devices'):
-             return {"success": False, "message": "No Spotify devices found. Open Spotify first."}
         
         device_id = active_devices[0]['id'] if active_devices else devices['devices'][0]['id']
 
@@ -172,3 +180,6 @@ def pick_best_track(tracks: list, query: str) -> dict:
             best_track = track
 
     return best_track
+
+
+#TO DO -> new queued songs add to te old queue
