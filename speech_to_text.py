@@ -1,18 +1,3 @@
-"""
-JARVIS — Updated SpeechToText
-================================
-Uses Groq's Whisper Large V3 API instead of local small.en model.
-
-Why:
-  - small.en can't handle Hinglish / Urdu words at all
-  - Groq runs whisper-large-v3 for free (500 mins/day free tier)
-  - Faster than local small model
-  - Handles: "kaise ho tum", "samjhawan", "Tajdar e Haram",
-             mixed English-Hindi sentences perfectly
-
-Drop-in replacement — rest of your code (NLUParser etc.) unchanged.
-"""
-
 import os
 import json
 import tempfile
@@ -20,6 +5,7 @@ import datetime
 import speech_recognition as sr
 from groq import Groq
 from dotenv import load_dotenv
+from faster_whisper import WhisperModel
 
 load_dotenv()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -27,7 +13,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 class NLUParser:
 
-    def __init__(self, model_name="llama-3.3-70b-versatile"):
+    def __init__(self, model_name="llama-3.1-8b-instant"):
         self.client     = Groq(api_key=GROQ_API_KEY)
         self.model_name = model_name
 
@@ -113,8 +99,12 @@ class SpeechToText:
         "Do not translate. Transcribe exactly what is said."
     )
 
-    def __init__(self):
-        self.client     = Groq(api_key=GROQ_API_KEY)
+    def __init__(self, model_size="small"):
+        # "small" or "base" are best for speed on local PC. 
+        # "auto" detects if you have CUDA (GPU) or uses CPU.
+        print(f"  [STT] Loading local faster-whisper model ('{model_size}')...")
+        self.model = WhisperModel(model_size, device="auto", compute_type="default")
+        
         self.recognizer = sr.Recognizer()
 
         # VAD settings
@@ -124,7 +114,7 @@ class SpeechToText:
 
     def listen(self) -> str | None:
         """
-        Records mic until silence, sends to Groq Whisper, returns transcript.
+        Records mic until silence, sends to local faster-whisper, returns transcript.
         """
         # ── Step 1: capture audio ─────────────────────────────
         with sr.Microphone() as source:
@@ -141,36 +131,26 @@ class SpeechToText:
                 print("  [STT] No speech detected.")
                 return None
 
-        print("  [STT] Transcribing via Groq Whisper...")
+        print("  [STT] Transcribing via local faster-whisper...")
 
         # ── Step 2: save to temp WAV ──────────────────────────
         try:
-            with tempfile.NamedTemporaryFile(
-                suffix=".wav", delete=False
-            ) as f:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
                 f.write(audio.get_wav_data())
                 temp_path = f.name
 
-            # ── Step 3: send to Groq Whisper API ──────────────
-            with open(temp_path, "rb") as audio_file:
-                transcription = self.client.audio.transcriptions.create(
-                    file   = audio_file,
-                    model  = "whisper-large-v3-turbo",  # fastest + most accurate
+            # ── Step 3: Transcribe locally ────────────────────
+            segments, info = self.model.transcribe(
+                temp_path,
+                initial_prompt=self.HINGLISH_PROMPT,
+                language="en", # Forces Roman script
+                temperature=0.0
+            )
 
-                    # prompt biases toward Hinglish — key fix
-                    prompt = self.HINGLISH_PROMPT,
-
-                    # "en" keeps output in Roman script
-                    # remove this line if you want Devanagari Hindi output
-                    language          = "en",
-
-                    response_format   = "text",
-                    temperature       = 0.0,
-                )
+            # Faster-whisper returns a generator, so we must loop through to get the text
+            text = "".join(segment.text for segment in segments).strip()
 
             os.unlink(temp_path)
-
-            text = transcription.strip() if transcription else None
 
             if text:
                 print(f"  [STT] Transcript: \"{text}\"")
