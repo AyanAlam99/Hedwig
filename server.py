@@ -1,14 +1,4 @@
-"""
-HEDWIG — Fast Server (Fixed Lag)
-==================================
-Fixes:
-  1. pyttsx3 engine created ONCE at startup, not every speak call
-  2. SpeechToText created ONCE, shared across all uses
-  3. Ambient noise calibration removed from hot path
-  4. Wake word audio flush improved
-  5. TTS runs in background thread — doesn't block listening
-"""
-
+import wave
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from speech_to_text import NLUParser, SpeechToText
@@ -16,22 +6,17 @@ from action_router import ActionRouter
 from contextlib import asynccontextmanager
 import uvicorn
 import tempfile, os, uuid, threading, time
-import pyttsx3
+from collections import deque
 import pyaudio
 import numpy as np
 from openwakeword.model import Model
 import queue
-
-
-
-# ─────────────────────────────────────────────
-# SPEAKER — init ONCE, reuse forever
-# ─────────────────────────────────────────────
-
+import json
 import pygame
 import tempfile
 from gtts import gTTS
 import os
+from  datetime import datetime
 
 class Speaker:
     def __init__(self):
@@ -66,10 +51,6 @@ class Speaker:
         print(f"\n Hedwig: {text}")
         threading.Thread(target=self._speak_text, args=(text,), daemon=True).start()
 
-# ─────────────────────────────────────────────
-# GLOBAL INSTANCES — created once at startup
-# ─────────────────────────────────────────────
-
 nlu     = NLUParser()
 router  = ActionRouter()
 stt     = SpeechToText()      # model loaded ONCE here
@@ -78,9 +59,38 @@ speaker = Speaker()            # pyttsx3 engine created ONCE here
 pending_actions = {}
 
 
-# ─────────────────────────────────────────────
-# FAST PC BACKGROUND LOOP
-# ─────────────────────────────────────────────
+def save_false_wak_audio(audio_bytes:bytes) : 
+    folder_name ="false_positives"
+
+    if not os.path.exists(folder_name) :
+        os.makedirs(folder_name)
+
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = os.path.join(folder_name, f"error_{timestamp}.wav")
+
+    try : 
+        with wave.open(filename,'wb') as wf : 
+            wf.setnchannels(1)
+            wf.setframerate(16000)
+            wf.setsampwidth(2)
+            wf.writeframes(audio_bytes)
+            print(f"  [Logger] Saved false wake audio to {filename}")
+    except Exception as e:
+        print(f"  [Logger Error] Could not save audio: {e}")
+
+
+
+def back_to_sleep(stream,oww_model) : 
+    print("\nBack to sleep...")
+   
+    stream.start_stream()
+    time.sleep(0.1)
+    available = stream.get_read_available()
+    if available > 0:
+        stream.read(available, exception_on_overflow=False)
+    oww_model.reset()           # reset after flush
+    
 
 def pc_background_loop():
     print("💻 [PC] Loading wake word model...")
@@ -101,29 +111,20 @@ def pc_background_loop():
         frames_per_buffer = CHUNK
     )
 
-    # ── pre-calibrate mic ONCE at startup ────────────────────
-    # previously this ran inside listen() every time = 0.3s delay
-    import speech_recognition as sr
-    recognizer = sr.Recognizer()
-    recognizer.pause_threshold         = 1.2
-    recognizer.energy_threshold        = 300
-    recognizer.dynamic_energy_threshold = True
-
-    with sr.Microphone() as source:
-        print("  [PC] Calibrating mic noise... (once)")
-        recognizer.adjust_for_ambient_noise(source, duration=1.0)
-        print(f"  [PC] Mic calibrated. Energy threshold: {recognizer.energy_threshold:.0f}")
-
     print("✅ [PC] Ready! Say 'Hey Hedwig'...\n")
 
     local_session  = {"id": None, "intent": None}
     cooldown_until = 0
+
+    audio_history_buffer = deque(maxlen=30)
 
     while True:
         try:
             # read audio chunk
             pcm        = stream.read(CHUNK, exception_on_overflow=False)
             audio_data = np.frombuffer(pcm, dtype=np.int16)
+
+            audio_history_buffer.append(pcm)
 
             # skip prediction during cooldown
             if time.time() < cooldown_until:
@@ -138,42 +139,55 @@ def pc_background_loop():
                     score = float(scores[key][-1])
                     break
 
-            if score > 0.08:
+            if score > 0.2:
                 print(f"\n✨ Wake word detected! (score={score:.3f})")
-                stream.stop_stream()
 
-                # Blocking "Yes?" — mic is OFF, no overlap, works every time
+                false_wake_audio_bytes = b"".join(audio_history_buffer)
+                stream.stop_stream()
                 speaker.say("Yes?")
 
-                temp_path = stt.listen()
+                audio_byte =  stt.listen()
+                
                 command_text = None
-                if temp_path:
+                if audio_byte:
                     try:
-                        command_text = stt.transcribe_file(temp_path)
+                        command_text = stt.transcribe_audio(audio_byte)
                     except Exception as e:
                         print(f"  STT error: {e}")
 
                 if command_text:
                     print(f"You: {command_text}")
+                    abort_words =["abort","jarvis","about"]  
+
+                    if any(w in command_text.lower().strip(".!,") for w in abort_words ): 
+                        speaker.say("Sorry")
+
+                        if false_wake_audio_bytes:
+                            threading.Thread(target=save_false_wak_audio, args=(false_wake_audio_bytes,), daemon=True).start()
+                        else : 
+                            print(f"no fake byte")
+
+                        back_to_sleep(stream,oww_model)
+                        cooldown_until = time.time() + 6.0
+                        continue 
+                        
                     parsed = nlu.parse(command_text)
                     if parsed:
+                        if parsed.get("intent","") == "unknown" or( parsed.get("parameters").get("target","") =="" and parsed.get("parameters").get("content","") =="") :
+                            back_to_sleep(stream,oww_model)
+                            cooldown_until = time.time() + 6.0
+                            continue
+                        print("\n[Final JSON Payload]:")
+                        print(json.dumps(parsed, indent=4))
                         confirmation = router.generate_confirmation_prompt(parsed)
                         speaker.say(confirmation)
 
                         print("Say yes or no...")
-                        with sr.Microphone() as source:
-                            try:
-                                confirm_audio = recognizer.listen(
-                                    source, timeout=6, phrase_time_limit=4
-                                )
-                            except sr.WaitTimeoutError:
-                                confirm_audio = None
-
-                        if confirm_audio:
-                            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                                f.write(confirm_audio.get_wav_data())
-                                tmp = f.name
-                            confirm_text = stt.transcribe_file(tmp)
+                        stt.recognizer.pause_threshold = 0.5
+                        confirm_audio_bytes = stt.listen(timeout=6, phrase_time_limit=4)
+                        stt.recognizer.pause_threshold = 1.5
+                        if confirm_audio_bytes:
+                            confirm_text = stt.transcribe_audio(confirm_audio_bytes)
                             print(f"  You: {confirm_text}")
 
                             POSITIVE = ["yes","yeah","yep","sure","ok","okay",
@@ -191,15 +205,8 @@ def pc_background_loop():
                 else:
                     speaker.say("I didn't catch that.")
 
-                # Restart in correct order: start → sleep → flush → reset → cooldown
-                print("\nBack to sleep...")
-                stream.start_stream()
-                time.sleep(0.1)
-                available = stream.get_read_available()
-                if available > 0:
-                    stream.read(available, exception_on_overflow=False)
-                oww_model.reset()           # reset after flush
-                cooldown_until = time.time() + 2.0
+                back_to_sleep(stream,oww_model)
+                cooldown_until = time.time() + 6.0
 
         except Exception as e:
             print(f"  Loop error: {e}")
@@ -238,12 +245,9 @@ async def chat_audio(
     audio:      UploadFile = File(...),
     session_id: str        = Form(None)
 ):
-    """Mobile endpoint — receives audio, returns response."""
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(await audio.read())
-        temp_path = f.name
+    audio_bytes = await audio.read()
 
-    text = stt.transcribe_file(temp_path)
+    text = stt.transcribe_file(audio_bytes)
     # transcribe_file handles cleanup internally
 
     if not text:
