@@ -152,34 +152,34 @@ def play_on_spotify(search_query: str) -> dict:
     #     return {"success": False, "message": f"Execution error: {str(e)}"}
     
 
+from thefuzz import fuzz
+
 def pick_best_track(tracks: list, query: str) -> dict:
     """
-    Picks the most relevant track from search results
-    instead of blindly returning the first one.
-    
-    Scores each track by how many query words appear
-    in the song name + artist name.
+    Picks the most relevant track from search results using Fuzzy String Matching.
+    This handles spelling mistakes from Speech-to-Text (e.g. Kaab vs Khaab).
     """
-    query_words = set(query.lower().split())
-    
     best_score = -1
-    best_track = tracks[0]  # fallback to first
+    best_track = tracks[0]  # Fallback to the first track
+
+    query_clean = query.lower()
 
     for track in tracks:
         song_name   = track["name"].lower()
         artist_name = track["artists"][0]["name"].lower()
-        combined    = f"{song_name} {artist_name}"
+        
+        # Combine song and artist name for the search pool
+        combined = f"{song_name} {artist_name}"
 
-        # score = number of query words found in song+artist
-        score = sum(1 for word in query_words if word in combined)
+        # 🧠 The Magic: fuzz.token_set_ratio
+        # This function ignores word order and handles missing/misspelled words brilliantly.
+        # It returns a score out of 100.
+        score = fuzz.token_set_ratio(query_clean, combined)
 
-        print(f"  [Match] '{track['name']}' by '{track['artists'][0]['name']}' — score: {score}")
+        print(f"  [Fuzzy Match] '{track['name']}' by '{track['artists'][0]['name']}' — score: {score}%")
 
         if score > best_score:
             best_score = score
             best_track = track
 
     return best_track
-
-
-#TO DO -> new queued songs add to te old queue
