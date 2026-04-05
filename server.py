@@ -12,44 +12,15 @@ import numpy as np
 from openwakeword.model import Model
 import queue
 import json
+from spotify_handler import preview_spotify_match
 import pygame
 import tempfile
 from gtts import gTTS
 import os
 from  datetime import datetime
+from Speaker import Speaker
 
-class Speaker:
-    def __init__(self):
-        pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=512)
-        print("  [Speaker] pygame mixer ready.")
 
-    def _speak_text(self, text: str):
-        """Convert text to MP3 via gTTS and play via pygame (no device conflict)."""
-        try:
-            tts = gTTS(text=text, lang='en', tld='co.in')
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
-                tts.save(f.name)
-                tmp = f.name
-            pygame.mixer.music.load(tmp)
-            pygame.mixer.music.play()
-            while pygame.mixer.music.get_busy():
-                time.sleep(0.05)
-            pygame.mixer.music.unload()
-            os.unlink(tmp)
-        except Exception as e:
-            print(f"  [Speaker Error]: {e}")
-
-    def say(self, text: str):
-        """Blocking — waits until speech finishes."""
-        if not text: return
-        print(f"\n Hedwig: {text}")
-        self._speak_text(text)
-
-    def say_async(self, text: str):
-        """Non-blocking."""
-        if not text: return
-        print(f"\n Hedwig: {text}")
-        threading.Thread(target=self._speak_text, args=(text,), daemon=True).start()
 
 nlu     = NLUParser()
 router  = ActionRouter()
@@ -96,7 +67,7 @@ def pc_background_loop():
     print("💻 [PC] Loading wake word model...")
 
     oww_model = Model(
-        wakeword_models     = ["hey_hedwig.onnx"],
+        wakeword_models     = ["hey_hedwig_v2.onnx"],
         inference_framework = "onnx"
     )
 
@@ -112,8 +83,6 @@ def pc_background_loop():
     )
 
     print("✅ [PC] Ready! Say 'Hey Hedwig'...\n")
-
-    local_session  = {"id": None, "intent": None}
     cooldown_until = 0
 
     audio_history_buffer = deque(maxlen=30)
@@ -138,13 +107,14 @@ def pc_background_loop():
                 if len(scores[key]) > 0:
                     score = float(scores[key][-1])
                     break
+            print(f"score : {score}")
 
-            if score > 0.2:
+            if score > 0.102:
                 print(f"\n✨ Wake word detected! (score={score:.3f})")
 
                 false_wake_audio_bytes = b"".join(audio_history_buffer)
                 stream.stop_stream()
-                speaker.say("Yes?")
+                speaker.play_hedwig_wake("hedwig-scenes-4k-harrypotter-scenepack-hedwig-320-kbps_VMVW05xc.mp3")
 
                 audio_byte =  stt.listen()
                 
@@ -157,7 +127,7 @@ def pc_background_loop():
 
                 if command_text:
                     print(f"You: {command_text}")
-                    abort_words =["abort","jarvis","about"]  
+                    abort_words =["abort","jarvis"]  
 
                     if any(w in command_text.lower().strip(".!,") for w in abort_words ): 
                         speaker.say("Sorry")
@@ -172,30 +142,75 @@ def pc_background_loop():
                         continue 
                         
                     parsed = nlu.parse(command_text)
+                    print(f"Parsed : {parsed}")
                     if parsed:
-                        if parsed.get("intent","") == "unknown" or( parsed.get("parameters").get("target","") =="" and parsed.get("parameters").get("content","") =="") :
-                            back_to_sleep(stream,oww_model)
+                        intent   = parsed.get("intent", "")
+                        platform = parsed.get("platform", "")
+                        params   = parsed.get("parameters", {})
+                    
+                        if intent == "unknown" or (
+                            params.get("target", "") == "" and params.get("content", "") == ""
+                        ):
+                            back_to_sleep(stream, oww_model)
                             cooldown_until = time.time() + 6.0
                             continue
-                        print("\n[Final JSON Payload]:")
-                        print(json.dumps(parsed, indent=4))
+                    
+                        # ── SPOTIFY: resolve real track before confirmation ────────────────────
+                        if intent in ["play_media", "play music", "play track"] or platform == "spotify":
+                            from spotify_handler import preview_spotify_match
+                            spotify_preview = preview_spotify_match(
+                                params.get("target", ""),
+                                params.get("content", "")
+                            )
+                            if not spotify_preview["found"]:
+                                speaker.say(spotify_preview.get("message", "Couldn't find that song."))
+                                back_to_sleep(stream, oww_model)
+                                cooldown_until = time.time() + 6.0
+                                continue
+                    
+                            parsed["parameters"]["content"]   = spotify_preview["track_name"]
+                            parsed["parameters"]["target"]    = spotify_preview["artist_name"]
+                            parsed["parameters"]["track_uri"] = spotify_preview["track_uri"]
+                    
+                        # ── WHATSAPP: resolve real contact before confirmation ─────────────────
+                        elif intent == "send_message" or platform == "whatsapp":
+                            from whatsapp_handler import resolve_contact
+                            spoken_name      = params.get("target", "").strip()
+                            contact_preview  = resolve_contact(spoken_name)
+                    
+                            if not contact_preview["found"]:
+                                speaker.say(contact_preview["message"])
+                                back_to_sleep(stream, oww_model)
+                                cooldown_until = time.time() + 6.0
+                                continue
+                    
+                            # Overwrite target with the REAL matched contact name
+                            # so confirmation says "Send to Sufiyan" not "Send to Sufi"
+                            parsed["parameters"]["target"]        = contact_preview["matched_name"]
+                            parsed["parameters"]["resolved_phone"] = contact_preview["phone"]
+                    
+                        # ── CONFIRMATION with real names for all intents ───────────────────────
                         confirmation = router.generate_confirmation_prompt(parsed)
                         speaker.say(confirmation)
-
+                    
                         print("Say yes or no...")
-                        stt.recognizer.pause_threshold = 0.5
                         confirm_audio_bytes = stt.listen(timeout=6, phrase_time_limit=4)
-                        stt.recognizer.pause_threshold = 1.5
+                    
                         if confirm_audio_bytes:
                             confirm_text = stt.transcribe_audio(confirm_audio_bytes)
                             print(f"  You: {confirm_text}")
-
-                            POSITIVE = ["yes","yeah","yep","sure","ok","okay",
-                                        "please","haan","bilkul","kar do","do it"]
-
+                    
+                            POSITIVE = ["yes", "yeah", "yep", "sure", "ok", "okay",
+                                        "please", "haan", "bilkul", "kar do", "do it"]
+                    
                             if confirm_text and any(w in confirm_text.lower() for w in POSITIVE):
                                 result = router.execute(parsed)
-                                speaker.say(result if isinstance(result, str) else "Done.")
+                                msg = (
+                                    result if isinstance(result, str)
+                                    else result.get("message", "Done.") if isinstance(result, dict)
+                                    else "Done."
+                                )
+                                speaker.say(msg)
                             else:
                                 speaker.say("Okay, cancelled.")
                         else:
