@@ -12,14 +12,14 @@ import io
 class Speaker:
     def __init__(self,model_path="en_GB-semaine-medium.onnx", config_path="en_GB-semaine.json"):
         pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=512)
-        print("  [Speaker] pygame mixer ready.")
+        print("  Speaker - pygame mixer ready.")
 
         print("LOadinf piper model")
         try : 
             self.voice = PiperVoice.load(model_path,config_path)
-            print("  [Speaker] Piper TTS ready.")
+            print(" Speaker - Piper TTS ready.")
         except Exception as e:
-            print(f"  [Speaker Error] Could not load Piper model: {e}. Check file paths!")
+            print(f" Speaker Error - Could not load Piper model: {e}. Check file paths!")
     
     def play_hedwig_wake(self,filepath : str) :
         try:
@@ -32,21 +32,14 @@ class Speaker:
             print(f"  [Speaker Error] Could not play sound effect {filepath}: {e}")
 
     def _speak_text(self, text: str):
-        """Convert text to WAV in-memory via Piper and play via pygame."""
+        """Convert text to WAV inmemory via Piper and play via pygame."""
         try:
-            # 1. Create an empty in-memory byte buffer (No temp files on disk!)
             wav_io = io.BytesIO()
 
-            # 2. Open the buffer as a wave file
             with wave.open(wav_io, 'wb') as wav_file:
-                # 3. Pass the wave object directly. 
-                # synthesize_wav automatically calls wav_file.setframerate(), setnchannels(), etc.
                 self.voice.synthesize_wav(text, wav_file)
-
-            # 4. Crucial: Reset the buffer's pointer back to the beginning before reading
             wav_io.seek(0)
 
-            # 5. Pygame reads directly from the memory buffer
             pygame.mixer.music.load(wav_io)
             pygame.mixer.music.play()
             
@@ -60,7 +53,7 @@ class Speaker:
             
 
     def say(self, text: str):
-        """Blocking — waits until speech finishes."""
+        """Blocking ,  waits until speech finishes."""
         if not text: return
         print(f"\n Hedwig: {text}")
         self._speak_text(text)
