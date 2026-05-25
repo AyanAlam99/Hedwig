@@ -45,18 +45,6 @@ class NLUParser:
 
 
 class SpeechToText:
-    """
-    Records mic audio and transcribes using Groq Whisper Large V3.
-
-    Key changes from previous version:
-      - Removed local WhisperModel (faster_whisper)
-      - Removed torch dependency for STT
-      - Uses Groq's whisper-large-v3-turbo via API
-      - Added initial_prompt for Hinglish bias
-      - Added language="en" with prompt override for mixed language
-
-    Groq free tier: 7200 seconds (120 mins) audio per day — plenty.
-    """
 
     HING_PROMPT= HINGLISH_PROMPT
 
@@ -122,29 +110,3 @@ class SpeechToText:
             print(f"  [STT Error]: {e}")
             return None
 
-
-# ─────────────────────────────────────────────
-# TEST
-# ─────────────────────────────────────────────
-
-if __name__ == "__main__":
-    stt = SpeechToText()
-    nlu = NLUParser()
-
-    print("Speak something in Hinglish...")
-    print("Try: 'Send a WhatsApp to Rahul saying kaise ho tum yaar'")
-    print("Or:  'Play Tajdar e Haram on YouTube'\n")
-
-    temp_path = stt.listen()
-    raw_text= stt.transcribe_file(temp_path)
-
-    if raw_text:
-        print(f"\n  Raw Transcript : {raw_text}")
-        print("  Parsing intent...")
-
-        parsed = nlu.parse(raw_text)
-
-        print("\n  Final JSON:")
-        print(json.dumps(parsed, indent=4))
-    else:
-        print("\n  No audio captured.")
