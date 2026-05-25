@@ -12,10 +12,7 @@ SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 SPOTIPY_REDIRECT_URI = "http://127.0.0.1:8888/callback"
 
 def ensure_spotify_open(sp) -> bool:
-    """
-    Opens Spotify desktop app if no devices found.
-    Waits up to 30 seconds for it to sync with the Spotify Web API.
-    """
+
     import subprocess
     import time
     import os
@@ -28,7 +25,7 @@ def ensure_spotify_open(sp) -> bool:
         r"C:\Program Files (x86)\Spotify\Spotify.exe",
     ]
 
-    print("  [Spotify] No devices found — launching Spotify...")
+    print("  Spotify - No devices found — launching Spotify...")
 
     for path in SPOTIFY_PATHS:
         expanded = os.path.expandvars(path)
@@ -37,27 +34,26 @@ def ensure_spotify_open(sp) -> bool:
             print(f"  [Spotify] Launched from: {expanded}")
             break
     else:
-        # fallback — let Windows find it
+        # fallback - let Windows find it
         subprocess.Popen("start spotify", shell=True)
 
     # Wait for Spotify to launch and register with the cloud API.
     # Checks every 3 seconds, up to 10 times (30 seconds total)
-    print("  [Spotify] Waiting for Spotify API to sync (this can take up to 30s)...")
+    print("  Spotify - Waiting for Spotify API to sync (this can take up to 30s)...")
     
     for attempt in range(10):
         time.sleep(3)
         try:
-            # Check the API to see if the device has woken up
             devices = sp.devices().get("devices", [])
             if devices:
-                print(f"  [Spotify] Device synced with API after {(attempt+1)*3}s ✅")
+                print(f"  Spotify - Device synced with API after {(attempt+1)*3}s ✅")
                 return True
-            print(f"  [Spotify] Still syncing... ({(attempt+1)*3}s)")
+            print(f"  Spotify - Still syncing... ({(attempt+1)*3}s)")
         except Exception as e:
-            # Silently pass API hiccups while it boots
+           
             pass
 
-    print("  [Spotify] Spotify didn't register in time.")
+    print("  Spotify - Spotify didn't register in time.")
     return False
 
 def play_on_spotify(target: str,content : str ,track_uri: str = None) -> dict:
@@ -82,7 +78,6 @@ def play_on_spotify(target: str,content : str ,track_uri: str = None) -> dict:
         sp = spotipy.Spotify(auth_manager=auth_manager)
 
         if track_uri:
-            # Already resolved during preview — skip search entirely
             track_name  = content
             artist_name = target
         else:
@@ -96,7 +91,7 @@ def play_on_spotify(target: str,content : str ,track_uri: str = None) -> dict:
             track_name  = best["name"]
             artist_name = best["artists"][0]["name"]
 
-            # --- 2. FIND ACTIVE DEVICE ---
+          
         devices = sp.devices()
 
         if not devices.get('devices'):
@@ -114,13 +109,12 @@ def play_on_spotify(target: str,content : str ,track_uri: str = None) -> dict:
         
         device_id = active_devices[0]['id'] if active_devices else devices['devices'][0]['id']
 
-        # --- 3. EXECUTE PLAYBACK & QUEUE (The Search Bypass) ---
         sp.start_playback(device_id=device_id, uris=[track_uri])
         print(f"  [Spotify] Playing {track_name}. Fetching radio mix...")
         
         valid_tracks = []
         
-        # Step A: Try to find and read a Radio playlist
+       
         try:
             pl_search = sp.search(q=f"{artist_name} Radio", type='playlist', limit=5)
             playlists = pl_search.get('playlists', {}).get('items', [])
@@ -133,7 +127,7 @@ def play_on_spotify(target: str,content : str ,track_uri: str = None) -> dict:
                     break
                     
             if radio_uri:
-                # If this throws a 403 Forbidden, it will safely drop to the except block below
+
                 pl_data = sp.playlist_tracks(radio_uri, limit=30)
                 for item in pl_data.get('items', []):
                     track = item.get('track')
@@ -142,11 +136,11 @@ def play_on_spotify(target: str,content : str ,track_uri: str = None) -> dict:
                         
         except Exception as playlist_err:
             print(f"  [Spotify] API blocked reading playlist. Skipping to fallback.")
-            # valid_tracks remains empty, which safely triggers Step B!
             
-        # Step B & C & D: The safe fallback and queueing
+            
+        
         try:
-            # If Step A failed or returned nothing, do the safe artist search
+            
             if not valid_tracks:
                 print("  [Spotify] Falling back to guaranteed artist tracks...")
                 artist_search = sp.search(q=f'artist:"{artist_name}"', type='track', limit=10)
@@ -221,12 +215,9 @@ def pick_best_track(tracks: list, target: str,content:str) -> dict:
         song_name   = track["name"].lower()
         artist_name = track["artists"][0]["name"].lower()
         
-        # Combine song and artist name for the search pool
+        
         combined = f"{song_name} {artist_name}"
 
-        # 🧠 The Magic: fuzz.token_set_ratio
-        # This function ignores word order and handles missing/misspelled words brilliantly.
-        # It returns a score out of 100.
         score1 = fuzz.token_set_ratio(song_name, content_clean)
         score2 = fuzz.token_set_ratio(artist_name, target_clean)
         final_score = score1+score2
