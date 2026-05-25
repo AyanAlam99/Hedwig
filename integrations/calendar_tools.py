@@ -28,11 +28,10 @@ def _get_service() :
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             try:
-                print("  [Calendar] Refreshing token...")
+                print(" Calendar - Refreshing token...")
                 creds.refresh(Request())
             except Exception as e:
-                # 🛠️ This is the key: if refresh fails, force re-auth
-                print(f"  [Calendar] Refresh failed: {e}. Re-authenticating...")
+                print(f"  Calendar - Refresh failed: {e}. Re-authenticating...")
                 if os.path.exists(TOKEN_FILE):
                     os.remove(TOKEN_FILE) # Force removal of the bad token
                 
