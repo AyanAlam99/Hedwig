@@ -1,4 +1,3 @@
-# core/engine.py
 import time
 import threading
 from collections import deque
@@ -8,11 +7,11 @@ from openwakeword.model import Model
 
 from core.state import ui_log
 from core.active_learning import save_false_wak_audio
-from speech_to_text import NLUParser, SpeechToText
-from action_router import ActionRouter
-from spotify_handler import preview_spotify_match
-from whatsapp_handler import resolve_contact
-from Speaker import Speaker
+from audio.speech_to_text import NLUParser, SpeechToText
+from core.action_router import ActionRouter
+from integrations.spotify_handler import preview_spotify_match
+from integrations.whatsapp_handler import resolve_contact
+from audio.Speaker import Speaker
 
 nlu = NLUParser()
 router = ActionRouter()
@@ -20,7 +19,7 @@ stt = SpeechToText()
 speaker = Speaker()            
 
 def back_to_sleep(stream, oww_model): 
-    ui_log("🌙 Back to sleep...", "sys")
+    ui_log("Back to sleep...", "sys")
     stream.start_stream()
     time.sleep(0.1)
     available = stream.get_read_available()
