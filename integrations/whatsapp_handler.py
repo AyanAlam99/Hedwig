@@ -1,11 +1,3 @@
-"""
-whatsapp_handler.py
-====================
-Green API BYOK with trusted contacts lock (max 3).
-Fuzzy match happens against locked contacts ONLY.
-Flow mirrors Spotify: resolve contact first, then confirm, then send.
-"""
-
 import requests
 import json
 import os
@@ -13,7 +5,6 @@ from thefuzz import fuzz
 
 CONFIG_FILE = "hedwig_config.json"
 
-# ─── Config helpers ───────────────────────────────────────────────────────────
 
 def _load_config() -> dict:
     if os.path.exists(CONFIG_FILE):
@@ -26,7 +17,6 @@ def _save_config(config: dict):
         json.dump(config, f, indent=2)
 
 
-# ─── Onboarding ───────────────────────────────────────────────────────────────
 
 def setup_green_api(instance_id: str, api_token: str) -> dict:
     """Verify Green API keys and save them."""
@@ -61,10 +51,6 @@ def setup_green_api(instance_id: str, api_token: str) -> dict:
 
 
 def add_trusted_contact(name: str, phone: str) -> dict:
-    """
-    Lock a contact slot (max 3).
-    phone: international format without + e.g. '919876543210'
-    """
     config  = _load_config()
     trusted = config.get("trusted_contacts", {})
 
@@ -123,17 +109,8 @@ def list_trusted_contacts() -> dict:
     }
 
 
-# ─── Fuzzy contact resolver ───────────────────────────────────────────────────
-
 def resolve_contact(spoken_name: str) -> dict:
-    """
-    Fuzzy-matches spoken_name against the 3 locked trusted contacts ONLY.
-    Called BEFORE confirmation — mirrors preview_spotify_match exactly.
 
-    Returns:
-        found=True  → matched_name, phone, score
-        found=False → message explaining why
-    """
     config  = _load_config()
     trusted = config.get("trusted_contacts", {})
 
@@ -156,8 +133,6 @@ def resolve_contact(spoken_name: str) -> dict:
             best_score = score
             best_name  = saved_name
             best_phone = phone
-
-    # 50 is generous enough to match "Sufi" → "sufiyan" or "rahul bhai" → "rahul"
     if best_score >= 50:
         return {
             "found":        True,
@@ -176,13 +151,8 @@ def resolve_contact(spoken_name: str) -> dict:
     }
 
 
-# ─── Sending ──────────────────────────────────────────────────────────────────
-
 def send_whatsapp_message(phone: str, message: str, matched_name: str = "") -> dict:
-    """
-    Sends via Green API.
-    Receives pre-resolved phone from resolve_contact() — no lookup here.
-    """
+    
     config = _load_config()
 
     if "instance_id" not in config:
@@ -217,8 +187,6 @@ def send_whatsapp_message(phone: str, message: str, matched_name: str = "") -> d
     except Exception as e:
         return {"success": False, "message": f"Error: {e}"}
 
-
-# ─── Legacy class (keeps existing action_router.py imports working) ───────────
 
 class WhatsappHandler:
     def find_contact(self, spoken_name: str) -> str | None:
