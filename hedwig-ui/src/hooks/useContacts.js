@@ -23,5 +23,16 @@ export function useContacts() {
     }
   }, [refresh])
 
+  const remove = useCallback(async (name) => {
+    setLoading(true)
+    try {
+      const data = await removeContact(name)
+      if (data.success) await refresh()
+      return data
+    } finally {
+      setLoading(false)
+    }
+  }, [refresh])
 
+  return { contacts, refresh, add, remove, loading }
 }
