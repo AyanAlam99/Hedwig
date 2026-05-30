@@ -7,7 +7,7 @@ from groq import Groq
 from dotenv import load_dotenv
 from faster_whisper import WhisperModel
 import io
-from prompts import NLU_SYSTEM_PROMPT , HINGLISH_PROMPT
+from audio.prompts import NLU_SYSTEM_PROMPT , HINGLISH_PROMPT
 
 load_dotenv()
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -54,8 +54,9 @@ class SpeechToText:
         self.recognizer = sr.Recognizer()
         self.client = Groq(api_key=GROQ_API_KEY)
         # VAD settings
-        self.recognizer.pause_threshold    = 0.7
-        self.recognizer.energy_threshold   = 300
+        self.recognizer.pause_threshold    = 1.5
+        self.recognizer.non_speaking_duration = 0.8 
+        self.recognizer.energy_threshold   = 200
         self.recognizer.dynamic_energy_threshold = True
 
     def listen(self,timeout=10,phrase_time_limit = 25) :
