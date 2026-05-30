@@ -1,8 +1,8 @@
 import json
 from datetime import datetime
 import urllib.parse
-from integrations.calendar_tools import create_event
-from integrations.spotify_handler import play_on_spotify
+from integrations.calendar_tools import create_event 
+from integrations.spotify_handler import play_on_spotify , pause_spotify  , resume_spotify 
 from audio.speech_to_text import NLUParser ,SpeechToText
 from integrations.whatsapp_handler import WhatsappHandler
 import requests,os 
@@ -57,7 +57,6 @@ class ActionRouter :
             if modifier:
                 return f"You want me to play '{song}' on Spotify by  {artist}. Shall I?"
             return f"You want me to play '{song}' on Spotify by {artist}. Shall I?"
-        
         elif intent == "open_app":
             app = platform
 
@@ -181,9 +180,19 @@ class ActionRouter :
             result = self._handle_calender(params)
             return result or {"message": "Event created."}
 
-        elif intent in ["play music", "play track", "play_media"] or platform == "spotify":
+        elif intent in ["play music", "play track", "play_media"] :
             result = self._handle_spotify(params)
             return result or {"message": "Playing now."}
+        
+        elif intent in ["pause", "pause_music", "pause_media"]:
+            result = pause_spotify()
+            print(f"  [Spotify] Pause triggered: {result['message']}")
+            return result
+
+        elif intent in ["resume", "resume_music", "resume_media"]:
+            result = resume_spotify()
+            print(f"  [Spotify] Resume triggered: {result['message']}")
+            return result
 
         elif intent == "send_message" or platform == "whatsapp":
             result = self._handle_whatsapp(params)
@@ -192,49 +201,3 @@ class ActionRouter :
         elif platform == "youtube" or (intent in ["play music", "play track", "play_media","play_video"] and "youtube" in params.get("content", "").lower()):
             return self._handle_youtube(params)
         
-
-
-
-if __name__ == "__main__": 
-    
-    stt = SpeechToText()
-    nlu = NLUParser()
-
-    router = ActionRouter()
-
-    raw_text = stt.listen()
-    
-    if raw_text:
-        print(f"\n[Raw Transcript]: {raw_text}")
-        print("[NLU] Extracting intent...")
-        
-        parsed_data = nlu.parse(raw_text)
-        
-        print("\n[Final JSON Payload]:")
-        print(json.dumps(parsed_data, indent=4))
-        
-        question =router.generate_confirmation_prompt(parsed_data)
-        print(f"[System] {question}")
-        
-        print("   (Listening for confirmation...)")
-        
-        stt.recognizer.pause_threshold = 0.5 
-        confirmation_text = stt.listen()
-        stt.recognizer.pause_threshold = 0.8 
-        if confirmation_text:
-            cleaned_reply = confirmation_text.lower()
-            print(f"   [You]: {cleaned_reply}")
-            positive_words = ["yes", "yeah", "yep", "sure", "do it", "ok", "okay", "please"]
-            
-            if any(word in cleaned_reply for word in positive_words):
-                print("\n[System]: Confirmation received. Executing action...")
-                router.execute(parsed_data)
-            else:
-                print("\n[System]: Action cancelled by user.")
-        else:
-            print("\n[System]: No confirmation heard. Action cancelled.")
-    
-        
-    else:
-        print("\n[Pipeline Cancelled]: No audio input.")
-    
