@@ -32,7 +32,7 @@ def pc_background_loop():
     ui_log("PC Loading wake word model...", "sys")
 
     oww_model = Model(
-        wakeword_models=["hey_hedwig_v2.onnx"],
+        wakeword_models=["hey_hedwig.onnx"],
         inference_framework="onnx"
     )
 
@@ -102,17 +102,35 @@ def pc_background_loop():
                         continue 
                         
                     parsed = nlu.parse(command_text)
+                    print(f"DEBUG NLU OUTPUT: {parsed}")
                     if parsed:
+                        modifier = parsed.get("parameters", {}).get("action_modifier", "").lower()
+                        if modifier == "pause":
+                            parsed = {**parsed, "intent": "pause", "platform": "spotify"}
+                            print("WE HERE SIR")
+                        elif modifier in ["resume", "continue", "unpause"]:
+                            parsed = {**parsed, "intent": "resume", "platform": "spotify"}
+
                         intent   = parsed.get("intent", "")
                         platform = parsed.get("platform", "")
                         params   = parsed.get("parameters", {})
+                        
+                        print(f"DEBUG AFTER NORM: intent={intent} platform={platform}")
+
+
+                        parameterless_intents = [
+                                "pause", "pause_music", "pause_media",
+                                "resume", "resume_music", "resume_media"
+                            ]
+
+                        
                     
-                        if intent == "unknown" or (params.get("target", "") == "" and params.get("content", "") == ""):
+                        if intent == "unknown" or (intent not in parameterless_intents and params.get("target", "") == "" and params.get("content", "") == ""):
                             back_to_sleep(stream, oww_model)
                             cooldown_until = time.time() + 6.0
                             continue
                     
-                        if intent in ["play_media", "play music", "play track"] or platform == "spotify":
+                        if intent in ["play_media", "play music", "play track"] :
                             spotify_preview = preview_spotify_match(params.get("target", ""), params.get("content", ""))
                             if not spotify_preview["found"]:
                                 speaker.say(spotify_preview.get("message", "Couldn't find that song."))
@@ -134,6 +152,16 @@ def pc_background_loop():
                                 continue
                             parsed["parameters"]["target"]         = contact_preview["matched_name"]
                             parsed["parameters"]["resolved_phone"] = contact_preview["phone"]
+
+                        elif intent in ["pause", "pause_music", "pause_media", "resume", "resume_music", "resume_media"]:
+                            print("WE MUST BE HERE SIR ")
+                            result = router.execute(parsed)
+
+                            msg = result if isinstance(result, str) else result.get("message", "Done.") if isinstance(result, dict) else "Done."
+                            speaker.say(msg)
+                            back_to_sleep(stream, oww_model)
+                            cooldown_until = time.time() + 6.0
+                            continue
                     
                     
                         confirmation = router.generate_confirmation_prompt(parsed)
