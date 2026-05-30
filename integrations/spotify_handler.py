@@ -37,8 +37,6 @@ def ensure_spotify_open(sp) -> bool:
         # fallback - let Windows find it
         subprocess.Popen("start spotify", shell=True)
 
-    # Wait for Spotify to launch and register with the cloud API.
-    # Checks every 3 seconds, up to 10 times (30 seconds total)
     print("  Spotify - Waiting for Spotify API to sync (this can take up to 30s)...")
     
     for attempt in range(10):
@@ -265,3 +263,56 @@ def preview_spotify_match(target: str, content: str) -> dict:
 
     except Exception as e:
         return {"found": False, "message": str(e)}
+
+
+def pause_spotify() -> dict:
+    try:
+        scope = "user-modify-playback-state user-read-playback-state"
+        auth_manager = SpotifyOAuth(
+            client_id=SPOTIFY_CLIENT_ID,
+            client_secret=SPOTIFY_CLIENT_SECRET,
+            redirect_uri=SPOTIPY_REDIRECT_URI,
+            scope=scope,
+            open_browser=False
+        )
+        sp = spotipy.Spotify(auth_manager=auth_manager)
+
+        devices = sp.devices().get('devices', [])
+        active_devices = [d for d in devices if d.get('is_active')]
+        
+        if not active_devices:
+            return {"success": False, "message": "No active playback session found to pause."}
+            
+        sp.pause_playback(device_id=active_devices[0]['id'])
+        return {"success": True, "message": "Playback paused successfully."}
+        
+    except Exception as e:
+        return {"success": False, "message": f"Failed to pause: {str(e)}"}
+
+def resume_spotify() -> dict:
+    try:
+        scope = "user-modify-playback-state user-read-playback-state"
+        auth_manager = SpotifyOAuth(
+            client_id=SPOTIFY_CLIENT_ID,
+            client_secret=SPOTIFY_CLIENT_SECRET,
+            redirect_uri=SPOTIPY_REDIRECT_URI,
+            scope=scope,
+            open_browser=False
+        )
+        sp = spotipy.Spotify(auth_manager=auth_manager)
+        
+        devices = sp.devices().get('devices', [])
+        if not devices:
+            if ensure_spotify_open(sp):
+                devices = sp.devices().get('devices', [])
+            else:
+                return {"success": False, "message": "Could not locate open Spotify instance."}
+                
+        active_devices = [d for d in devices if d.get('is_active')]
+        device_id = active_devices[0]['id'] if active_devices else devices[0]['id']
+        
+        sp.start_playback(device_id=device_id)
+        return {"success": True, "message": "Playback resumed successfully."}
+        
+    except Exception as e:
+        return {"success": False, "message": f"Failed to resume: {str(e)}"}
