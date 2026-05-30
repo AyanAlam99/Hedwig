@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from whatsapp_handler import (
+from integrations.whatsapp_handler import (
     setup_green_api, add_trusted_contact, 
     remove_trusted_contact, list_trusted_contacts, _load_config
 )
