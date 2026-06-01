@@ -5,6 +5,7 @@ from integrations.calendar_tools import create_event
 from integrations.spotify_handler import play_on_spotify , pause_spotify  , resume_spotify 
 from audio.speech_to_text import NLUParser ,SpeechToText
 from integrations.whatsapp_handler import WhatsappHandler
+from integrations.open_app import open_app , open_url_in_browser , WEBSITE_MAP
 import requests,os 
 from dotenv import load_dotenv
 
@@ -44,12 +45,6 @@ class ActionRouter :
                 f"You want me to send '{message}' "
                 f"to {contact} on WhatsApp. Confirm?"
             )
-        
-        elif platform == "youtube":
-            query = content or target or "something"
-            if modifier:
-                return f"You want me to search '{query}' on YouTube — {modifier}. Correct?"
-            return f"You want me to open YouTube and search for '{query}'. Correct?"
 
         elif intent in ["play music","play track","play_media"]:
             song = content 
@@ -57,12 +52,13 @@ class ActionRouter :
             if modifier:
                 return f"You want me to play '{song}' on Spotify by  {artist}. Shall I?"
             return f"You want me to play '{song}' on Spotify by {artist}. Shall I?"
+        
         elif intent == "open_app":
-            app = platform
-
-            if app.lower().strip() =="whatsapp" :
-                return f"You want me to open {app} and message {target} , {content}"
-            return f"You want me to open {app}. Is that right?"
+            app_name = params.get("target") or params.get("content") or "something"
+            platform = params.get("platform", "")
+            if platform in ["brave", "chrome", "firefox", "edge"]:
+                return f"You want me to open {app_name} in {platform}. Shall I?"
+            return f"You want me to open {app_name}. Shall I?"
         
         elif intent == "search":
             query    = content or target or "something"
@@ -75,32 +71,24 @@ class ActionRouter :
                 return f"You want me to {action} — {detail}. Is that right?"
             return f"You want me to {action}. Is that right?"
 
-
-    import urllib.parse
-
-    def _handle_youtube(self, params: dict): 
-        query = params.get("target", "") or params.get("content", "")
-        query = query.strip()
-
-        if not query:
-            print("  [YouTube] No video name specified.")
-            return {"status": "error", "message": "No query provided"}
-
-        print(f"  [YouTube] Generating search URL for '{query}'...")
+    def _handle_open_app(self, params: dict) -> dict:
+        target   = params.get("target", "").strip().lower()
+        content  = params.get("content", "").strip().lower()
+        platform = params.get("platform", "").strip().lower()
         
-        # URL encode the query (e.g., "Iron Man" -> "Iron+Man")
-        encoded_query = urllib.parse.quote(query)
+        app_name = target or content
         
-      
-        url = f"https://www.youtube.com/results?search_query={encoded_query}"
-        
-      
-        return {
-            "status": "success", 
-            "action": "open_url", 
-            "url": url,
-            "message": f"Opening YouTube for {query}"
-        }
+        if not app_name:
+            return {"success": False, "message": "What would you like me to open?"}
+
+        if app_name in WEBSITE_MAP :
+            if platform in ["firefox" , "chrome" ,"edge" , "brave "] :
+                return open_url_in_browser(WEBSITE_MAP[app_name], browser=platform)
+            else :
+                return open_url_in_browser(WEBSITE_MAP[app_name])
+
+        return open_app(app_name)
+    
 
     def _handle_calender(self,params:dict) : 
 
@@ -176,6 +164,7 @@ class ActionRouter :
         params = intent_data.get("parameters", {})
 
         print(f"Router Routing command: {intent} -> {platform}")
+
         if intent == "schedule_meeting" or platform == "calendar":
             result = self._handle_calender(params)
             return result or {"message": "Event created."}
@@ -197,7 +186,10 @@ class ActionRouter :
         elif intent == "send_message" or platform == "whatsapp":
             result = self._handle_whatsapp(params)
             return result or {"message": "Message sent."}
+        
+        elif intent == "open_app":
+            result = self._handle_open_app(params)
+            return result or {"message": "Done."}
 
-        elif platform == "youtube" or (intent in ["play music", "play track", "play_media","play_video"] and "youtube" in params.get("content", "").lower()):
-            return self._handle_youtube(params)
+        
         
