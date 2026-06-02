@@ -1,12 +1,6 @@
-import json
-from datetime import datetime
-import urllib.parse
-from integrations.calendar_tools import create_event 
 from integrations.spotify_handler import play_on_spotify , pause_spotify  , resume_spotify 
-from audio.speech_to_text import NLUParser ,SpeechToText
-from integrations.whatsapp_handler import WhatsappHandler
-from integrations.open_app import open_app , open_url_in_browser , WEBSITE_MAP
-import requests,os 
+from core.handler import handle_open_app , handle_calendar , handle_spotify , handle_whatsapp 
+import os 
 from dotenv import load_dotenv
 
 
@@ -54,8 +48,11 @@ class ActionRouter :
             return f"You want me to play '{song}' on Spotify by {artist}. Shall I?"
         
         elif intent == "open_app":
+            print("jinglanfsfs")
             app_name = params.get("target") or params.get("content") or "something"
             platform = params.get("platform", "")
+            if not app_name:
+                app_name = platform 
             if platform in ["brave", "chrome", "firefox", "edge"]:
                 return f"You want me to open {app_name} in {platform}. Shall I?"
             return f"You want me to open {app_name}. Shall I?"
@@ -65,95 +62,8 @@ class ActionRouter :
             platform_name = platform if platform not in ("unknown", "general") else "Google"
             return f"You want me to search for '{query}' on {platform_name}. Confirm?"
         else:
-            action = intent.replace("_", " ")
-            detail = target or content or ""
-            if detail:
-                return f"You want me to {action} — {detail}. Is that right?"
-            return f"You want me to {action}. Is that right?"
-
-    def _handle_open_app(self, params: dict) -> dict:
-        target   = params.get("target", "").strip().lower()
-        content  = params.get("content", "").strip().lower()
-        platform = params.get("platform", "").strip().lower()
-        
-        app_name = target or content
-        
-        if not app_name:
-            return {"success": False, "message": "What would you like me to open?"}
-
-        if app_name in WEBSITE_MAP :
-            if platform in ["firefox" , "chrome" ,"edge" , "brave "] :
-                return open_url_in_browser(WEBSITE_MAP[app_name], browser=platform)
-            else :
-                return open_url_in_browser(WEBSITE_MAP[app_name])
-
-        return open_app(app_name)
-    
-
-    def _handle_calender(self,params:dict) : 
-
-        title = params.get('target') or params.get('content') or "Voice Assistant Meeting"
-        date_str = params.get('date')
-        time_str = params.get('time',"")
-
-        if not date_str :
-            print("Cannot schedule meeting. Missing date or time.")
-            return
-        
-        print(f"Calling Calendar Api for {title} on {date_str} at {time_str}")
-
-        result = create_event(title=title,date=date_str,time_str=time_str)
-
-        if result["success"]:
-            print(f"SUCCESS: {result['message']}")
-            print(f"Link: {result['link']}")
-        else:
-            print(f"FAILED: {result['message']}")
-
-
-    def _handle_spotify(self, params: dict):
-        target    = params.get("target", "")
-        content   = params.get("content", "")
-        track_uri = params.get("track_uri")    # pre-resolved — skip search
-
-        print(f"[Router] Spotify: '{content}' by '{target}'")
-        result = play_on_spotify(target, content, track_uri=track_uri)
-
-        if result["success"]:
-            print(f"SUCCESS: {result['message']}")
-        else:
-            print(f"FAILED: {result['message']}")
-        return result
-
-
-    def _handle_whatsapp(self, params: dict):
-        from integrations.whatsapp_handler import send_whatsapp_message
-
-        matched_name   = params.get("target", "").strip()
-        message        = params.get("content", "").strip()
-        resolved_phone = params.get("resolved_phone", "").strip()
-
-        if not message:
-            print("  [WhatsApp] No message specified.")
-            return {"success": False, "message": "No message to send."}
-
-        if not resolved_phone:
             
-            from integrations.whatsapp_handler import resolve_contact
-            result = resolve_contact(matched_name)
-            if not result["found"]:
-                speaker_msg = result["message"]
-                print(f"  [WhatsApp] {speaker_msg}")
-                return {"success": False, "message": speaker_msg}
-            resolved_phone = result["phone"]
-            matched_name   = result["matched_name"]
-
-        print(f"  [WhatsApp] Sending '{message}' to {matched_name} ({resolved_phone})")
-        return send_whatsapp_message(
-            phone        = resolved_phone,
-            message      = message,
-            matched_name = matched_name
-        )
+            return f"didnt get anything , youre asked app name :{app_name} and platform : {platform} "
 
     def execute(self, intent_data : dict)  :
         if not intent_data : 
@@ -166,11 +76,11 @@ class ActionRouter :
         print(f"Router Routing command: {intent} -> {platform}")
 
         if intent == "schedule_meeting" or platform == "calendar":
-            result = self._handle_calender(params)
+            result = handle_calendar(params)
             return result or {"message": "Event created."}
 
         elif intent in ["play music", "play track", "play_media"] :
-            result = self._handle_spotify(params)
+            result = handle_spotify(params)
             return result or {"message": "Playing now."}
         
         elif intent in ["pause", "pause_music", "pause_media"]:
@@ -184,11 +94,12 @@ class ActionRouter :
             return result
 
         elif intent == "send_message" or platform == "whatsapp":
-            result = self._handle_whatsapp(params)
+            result =handle_whatsapp(params)
             return result or {"message": "Message sent."}
         
         elif intent == "open_app":
-            result = self._handle_open_app(params)
+            print(f"In the exection method and the platform is {platform}")
+            result = handle_open_app(params, platform)
             return result or {"message": "Done."}
 
         
