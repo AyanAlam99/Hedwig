@@ -125,7 +125,7 @@ def pc_background_loop():
 
                         
                     
-                        if intent == "unknown" or (intent not in parameterless_intents and params.get("target", "") == "" and params.get("content", "") == ""):
+                        if intent == "unknown" :
                             back_to_sleep(stream, oww_model)
                             cooldown_until = time.time() + 6.0
                             continue
