@@ -61,7 +61,9 @@ class TrustedContact(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     provider = Column(String(80), nullable=False)
     name = Column(String(120), nullable=False)
-    phone = Column(String(40), nullable=False)
+    phone = Column(String(40), nullable=False, default="")
+    phone_ciphertext = Column(Text, nullable=False, default="")
+    phone_masked = Column(String(40), nullable=False, default="")
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
