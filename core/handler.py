@@ -54,14 +54,3 @@ def handle_open_app(params: dict, platform: str) -> dict:
         return open_url_in_browser(WEBSITE_MAP[app_name])
 
     return open_app(app_name)
-
-def handle_youtube(params: dict) -> dict:
-    import urllib.parse
-    query = (params.get("target") or params.get("content", "")).strip()
-    if not query:
-        return {"success": False, "message": "No query provided."}
-    encoded = urllib.parse.quote(query)
-    url = f"https://www.youtube.com/results?search_query={encoded}"
-    # Open it too
-    open_url_in_browser(url)
-    return {"success": True, "action": "open_url", "url": url, "message": f"Opening YouTube for {query}."}
