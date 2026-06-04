@@ -190,7 +190,6 @@ def add_trusted_contact(user_id: int, provider: str, name: str, phone: str):
             )
             db.add(contact)
 
-        contact.phone = ""
         contact.phone_ciphertext = encrypt_phone(phone_clean)
         contact.phone_masked = mask_phone(phone_clean)
         contact.updated_at = now
@@ -218,7 +217,7 @@ def list_trusted_contacts(user_id: int, provider: str):
             .order_by(TrustedContact.name)
         ).scalars().all()
         return {
-            contact.name: contact.phone_masked or mask_phone(contact.phone)
+            contact.name: contact.phone_masked
             for contact in contacts
         }
 
@@ -236,7 +235,7 @@ def list_trusted_contact_numbers(user_id: int, provider: str):
 
         numbers = {}
         for contact in contacts:
-            phone = decrypt_phone(contact.phone_ciphertext) if contact.phone_ciphertext else contact.phone
+            phone = decrypt_phone(contact.phone_ciphertext)
             if phone:
                 numbers[contact.name] = phone
         return numbers

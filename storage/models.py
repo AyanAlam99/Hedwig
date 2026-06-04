@@ -1,4 +1,4 @@
-from sqlalchemy import (Column,DateTime,ForeignKey,Integer , String,Text, UniqueConstraint,)
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from storage.database import Base
@@ -15,13 +15,9 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
     sessions = relationship("UserSession", cascade="all, delete-orphan", back_populates="user")
-
     integrations = relationship("Integration", cascade="all, delete-orphan", back_populates="user")
-
     trusted_contacts = relationship("TrustedContact", cascade="all, delete-orphan", back_populates="user")
-
     app_registrations = relationship("AppRegistration", cascade="all, delete-orphan", back_populates="user")
-    
 
 
 class UserSession(Base):
@@ -61,9 +57,8 @@ class TrustedContact(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     provider = Column(String(80), nullable=False)
     name = Column(String(120), nullable=False)
-    phone = Column(String(40), nullable=False, default="")
-    phone_ciphertext = Column(Text, nullable=False, default="")
-    phone_masked = Column(String(40), nullable=False, default="")
+    phone_ciphertext = Column(Text, nullable=False)
+    phone_masked = Column(String(40), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False)
     updated_at = Column(DateTime(timezone=True), nullable=False)
 

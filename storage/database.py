@@ -1,7 +1,6 @@
 import os
 from contextlib import contextmanager
 from pathlib import Path
-from storage import models 
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -52,4 +51,6 @@ def get_db():
 
 
 def init_db():
+    from storage import models  # noqa: F401
+
     Base.metadata.create_all(bind=engine)
