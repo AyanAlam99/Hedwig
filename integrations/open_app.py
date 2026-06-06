@@ -19,6 +19,26 @@ WEBSITE_MAP = {
     "linkedin": "https://www.linkedin.com",
 }
 
+WINDOWS_BUILTIN = {
+    "calculator":    "calc.exe",
+    "calc":          "calc.exe",
+    "notepad":       "notepad.exe",
+    "paint":         "mspaint.exe",
+    "file explorer": "explorer.exe",
+    "explorer":      "explorer.exe",
+    "task manager":  "taskmgr.exe",
+    "cmd":           "cmd.exe",
+    "terminal":      "wt.exe",          
+    "command prompt":"cmd.exe",
+    "control panel": "control.exe",
+    "settings":      "ms-settings:",    
+    "snipping tool": "SnippingTool.exe",
+    "wordpad":       "wordpad.exe",
+    "clock":         "ms-clock:",
+    "calendar":      "outlookcal:",
+    "photos":        "ms-photos:",
+}
+
 AUTO_DETECT_PATTERNS = {
     "brave":     ["BraveSoftware/**/brave.exe"],
     "chrome":    ["Google/Chrome/**/chrome.exe"],
@@ -151,10 +171,6 @@ def auto_detect(app_name: str) -> dict:
 
 
 def open_app(app_name: str) -> dict:
-    """
-    Opens an app or website by spoken name.
-    Priority: user registered apps → websites → Windows 'start' fallback
-    """
     config    = _load_config()
     user_apps = config.get("apps", {})
     name      = app_name.lower().strip()
@@ -166,19 +182,44 @@ def open_app(app_name: str) -> dict:
             return {"success": True, "message": f"Opening {app_name}."}
         except Exception as e:
             return {"success": False, "message": f"Failed to open {app_name}: {e}"}
-        
+
     if name in WEBSITE_MAP:
         return open_url_in_browser(WEBSITE_MAP[name])
 
-    #Windows 'start' fallback
+    if name in WINDOWS_BUILTIN:
+        try:
+            cmd = WINDOWS_BUILTIN[name]
+            if cmd.startswith("ms-") or cmd.endswith(":"):
+            
+                os.startfile(cmd)
+            else:
+                subprocess.Popen(cmd, shell=True)
+            return {"success": True, "message": f"Opening {app_name}."}
+        except Exception as e:
+            return {"success": False, "message": f"Failed: {e}"}
+
+    detected = auto_detect(name)
+    if detected["found"]:
+        try:
+            subprocess.Popen(detected["path"], shell=True)
+            return {"success": True, "message": f"Opening {app_name}."}
+        except Exception as e:
+            return {"success": False, "message": f"Found but failed to open: {e}"}
+
     try:
-        subprocess.Popen(f"start {name}", shell=True)
-        return {"success": True, "message": f"Opening {app_name}."}
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"I don't know how to open '{app_name}'. Register it in Settings."
-        }
+        result = subprocess.run(
+            f"start {name}", shell=True,
+            capture_output=True, timeout=3
+        )
+        if result.returncode == 0:
+            return {"success": True, "message": f"Opening {app_name}."}
+    except Exception:
+        pass
+
+    return {
+        "success": False,
+        "message": f"I don't know how to open '{app_name}'. Register it in Settings."
+    }
 
 
 def open_url_in_browser(url: str, browser: str = None) -> dict:
@@ -189,10 +230,7 @@ def open_url_in_browser(url: str, browser: str = None) -> dict:
     config     = _load_config()
     user_apps  = config.get("apps", {})
 
-    browser_name = (
-        browser
-        or config.get("default_browser")
-    )
+    browser_name = browser or config.get("default_browser")
     browser_path = user_apps.get(browser_name) if browser_name else None
 
     try:
