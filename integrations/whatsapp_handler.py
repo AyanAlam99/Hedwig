@@ -1,170 +1,78 @@
 import requests
-import json
-import os
 from thefuzz import fuzz
 
-CONFIG_FILE = "hedwig_config.json"
+from storage.crypto import normalize_phone
+from storage.queries import get_active_user_id, get_integration, list_trusted_contact_numbers
+from storage.secrets import get_secret
 
 
-def _load_config() -> dict:
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    return {}
+def _load_wa_creds(user_id: int | None = None) -> tuple[str, str] | tuple[None, None]:
+    """Returns (instance_id, api_token) from keyring, or (None, None) if not set up."""
+    uid = user_id if user_id is not None else get_active_user_id()
+    if uid is None:
+        return None, None
 
-def _save_config(config: dict):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
+    item = get_integration(uid, "whatsapp")
+    if not item or item["status"] != "connected":
+        return None, None
 
+    meta = item.get("metadata", {})
+    instance_ref = meta.get("instance_secret_ref")
+    token_ref = item.get("secret_ref")
 
+    instance_id = get_secret(instance_ref) if instance_ref else None
+    api_token = get_secret(token_ref) if token_ref else None
 
-def setup_green_api(instance_id: str, api_token: str) -> dict:
-    """Verify Green API keys and save them."""
-    url = f"https://api.green-api.com/waInstance{instance_id}/getStateInstance/{api_token}"
-    try:
-        resp  = requests.get(url, timeout=10)
-        state = resp.json().get("stateInstance", "")
-
-        if state == "authorized":
-            config = _load_config()
-            config["instance_id"]      = instance_id
-            config["api_token"]        = api_token
-            config["trusted_contacts"] = config.get("trusted_contacts", {})
-            _save_config(config)
-            slots_left = 3 - len(config["trusted_contacts"])
-            return {
-                "success":   True,
-                "message":   f"WhatsApp connected. Add up to {slots_left} trusted contact(s).",
-                "slots_left": slots_left
-            }
-
-        if state == "notAuthorized":
-            return {
-                "success": False,
-                "message": "Instance not authorized. Scan the QR code at app.green-api.com first."
-            }
-
-        return {"success": False, "message": f"Instance state: '{state}'. Link WhatsApp first."}
-
-    except Exception as e:
-        return {"success": False, "message": f"Connection error: {e}"}
+    return instance_id, api_token
 
 
-def add_trusted_contact(name: str, phone: str) -> dict:
-    config  = _load_config()
-    trusted = config.get("trusted_contacts", {})
+def resolve_contact(spoken_name: str, user_id: int | None = None) -> dict:
+    uid = user_id if user_id is not None else get_active_user_id()
+    if uid is None:
+        return {"found": False, "message": "No user account found."}
 
-    if "instance_id" not in config:
-        return {"success": False, "message": "Green API not set up yet."}
+    contacts = list_trusted_contact_numbers(uid, "whatsapp")
 
-    if len(trusted) >= 3:
-        names = ", ".join(trusted.keys())
+    if not contacts:
         return {
-            "success": False,
-            "message": f"All 3 slots taken ({names}). Remove one to add another."
-        }
-
-    phone_clean               = phone.replace("+", "").replace(" ", "").replace("-", "")
-    key                       = name.strip().lower()
-    trusted[key]              = phone_clean
-    config["trusted_contacts"] = trusted
-    _save_config(config)
-
-    slots_left = 3 - len(trusted)
-    return {
-        "success":        True,
-        "message":        f"Added '{name}'. {slots_left} slot(s) remaining.",
-        "slots_left":     slots_left,
-        "trusted_contacts": trusted
-    }
-
-
-def remove_trusted_contact(name: str) -> dict:
-    config  = _load_config()
-    trusted = config.get("trusted_contacts", {})
-    key     = name.strip().lower()
-
-    if key not in trusted:
-        return {"success": False, "message": f"'{name}' not in trusted contacts."}
-
-    del trusted[key]
-    config["trusted_contacts"] = trusted
-    _save_config(config)
-
-    return {
-        "success": True,
-        "message": f"Removed '{name}'. {3 - len(trusted)} slot(s) now free.",
-        "trusted_contacts": trusted
-    }
-
-
-def list_trusted_contacts() -> dict:
-    config  = _load_config()
-    trusted = config.get("trusted_contacts", {})
-    return {
-        "success":    True,
-        "contacts":   trusted,
-        "slots_used": len(trusted),
-        "slots_left": 3 - len(trusted)
-    }
-
-
-def resolve_contact(spoken_name: str) -> dict:
-
-    config  = _load_config()
-    trusted = config.get("trusted_contacts", {})
-
-    if not trusted:
-        return {
-            "found":   False,
-            "message": "No trusted contacts set up. Add up to 3 in settings first."
+            "found": False,
+            "message": "No trusted contacts set up. Add up to 3 in settings first.",
         }
 
     spoken_lower = spoken_name.strip().lower()
-    best_score   = -1
-    best_name    = None
-    best_phone   = None
+    best_score = -1
+    best_name = None
+    best_phone = None
 
-    for saved_name, phone in trusted.items():
+    for saved_name, phone in contacts.items():
         score = fuzz.token_set_ratio(spoken_lower, saved_name)
         print(f"  [Contact Fuzzy] '{spoken_name}' vs '{saved_name}' → {score}")
-
         if score > best_score:
             best_score = score
-            best_name  = saved_name
+            best_name = saved_name
             best_phone = phone
-    if best_score >= 50:
-        return {
-            "found":        True,
-            "matched_name": best_name,
-            "phone":        best_phone,
-            "score":        best_score
-        }
 
-    trusted_names = ", ".join(trusted.keys())
+    if best_score >= 50:
+        return {"found": True, "matched_name": best_name, "phone": best_phone, "score": best_score}
+
+    trusted_names = ", ".join(contacts.keys())
     return {
-        "found":   False,
+        "found": False,
         "message": (
             f"Couldn't match '{spoken_name}' to any trusted contact. "
             f"Your trusted contacts are: {trusted_names}."
-        )
+        ),
     }
 
 
-def send_whatsapp_message(phone: str, message: str, matched_name: str = "") -> dict:
-    
-    config = _load_config()
+def send_whatsapp_message(phone: str, message: str, matched_name: str = "", user_id: int | None = None) -> dict:
+    instance_id, api_token = _load_wa_creds(user_id)
 
-    if "instance_id" not in config:
-        return {
-            "success": False,
-            "message": "WhatsApp not set up. Add Green API keys in settings."
-        }
+    if not instance_id or not api_token:
+        return {"success": False, "message": "WhatsApp not set up. Connect Green API in settings."}
 
-    instance_id = config["instance_id"]
-    api_token   = config["api_token"]
-    chat_id     = f"{phone}@c.us"
-    url         = f"https://api.green-api.com/waInstance{instance_id}/sendMessage/{api_token}"
+    chat_id = f"{normalize_phone(phone)}@c.us"
+    url = f"https://api.green-api.com/waInstance{instance_id}/sendMessage/{api_token}"
 
     try:
         resp = requests.post(url, json={"chatId": chat_id, "message": message}, timeout=10)
@@ -175,10 +83,7 @@ def send_whatsapp_message(phone: str, message: str, matched_name: str = "") -> d
             return {"success": True, "message": f"Message sent to {name}."}
 
         if "quotaExceeded" in str(data):
-            return {
-                "success": False,
-                "message": "Monthly quota exceeded. Resets on the 1st of next month."
-            }
+            return {"success": False, "message": "Monthly quota exceeded. Resets on the 1st of next month."}
 
         return {"success": False, "message": f"Green API error: {data}"}
 
@@ -189,6 +94,6 @@ def send_whatsapp_message(phone: str, message: str, matched_name: str = "") -> d
 
 
 class WhatsappHandler:
-    def find_contact(self, spoken_name: str) -> str | None:
-        result = resolve_contact(spoken_name)
+    def find_contact(self, spoken_name: str, user_id: int | None = None) -> str | None:
+        result = resolve_contact(spoken_name, user_id=user_id)
         return result.get("phone") if result["found"] else None
