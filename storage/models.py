@@ -18,6 +18,7 @@ class User(Base):
     integrations = relationship("Integration", cascade="all, delete-orphan", back_populates="user")
     trusted_contacts = relationship("TrustedContact", cascade="all, delete-orphan", back_populates="user")
     app_registrations = relationship("AppRegistration", cascade="all, delete-orphan", back_populates="user")
+    parked_blobs = relationship("ParkedBlob", cascade="all, delete-orphan", back_populates="user")
 
 
 class UserSession(Base):
@@ -77,6 +78,20 @@ class AppRegistration(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False)
 
     user = relationship("User", back_populates="app_registrations")
+
+
+class ParkedBlob(Base):
+   
+    __tablename__ = "parked_blobs"
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    provider = Column(String(80), nullable=False)
+    ciphertext_b64 = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    user = relationship("User", back_populates="parked_blobs")
 
 
 class AssistantLog(Base):
