@@ -104,33 +104,16 @@ def pc_background_loop():
                     parsed = nlu.parse(command_text)
                     print(f"DEBUG NLU OUTPUT: {parsed}")
                     if parsed:
-                        modifier = parsed.get("parameters", {}).get("action_modifier", "").lower()
-                        if modifier == "pause":
-                            parsed = {**parsed, "intent": "pause", "platform": "spotify"}
-                            print("WE HERE SIR")
-                        elif modifier in ["resume", "continue", "unpause"]:
-                            parsed = {**parsed, "intent": "resume", "platform": "spotify"}
-
                         intent   = parsed.get("intent", "")
                         platform = parsed.get("platform", "")
                         params   = parsed.get("parameters", {})
-                        
-                        print(f"DEBUG AFTER NORM: intent={intent} platform={platform}")
 
-
-                        parameterless_intents = [
-                                "pause", "pause_music", "pause_media",
-                                "resume", "resume_music", "resume_media"
-                            ]
-
-                        
-                    
-                        if intent == "unknown" :
+                        if intent == "unknown":
                             back_to_sleep(stream, oww_model)
                             cooldown_until = time.time() + 6.0
                             continue
-                    
-                        if intent in ["play_media", "play music", "play track"] :
+
+                        if intent == "play_media":
                             spotify_preview = preview_spotify_match(params.get("target", ""), params.get("content", ""))
                             if not spotify_preview["found"]:
                                 speaker.say(spotify_preview.get("message", "Couldn't find that song."))
@@ -140,11 +123,11 @@ def pc_background_loop():
                             parsed["parameters"]["content"]   = spotify_preview["track_name"]
                             parsed["parameters"]["target"]    = spotify_preview["artist_name"]
                             parsed["parameters"]["track_uri"] = spotify_preview["track_uri"]
-                    
+
                         elif intent == "send_message" or platform == "whatsapp":
                             spoken_name     = params.get("target", "").strip()
                             contact_preview = resolve_contact(spoken_name)
-                    
+
                             if not contact_preview["found"]:
                                 speaker.say(contact_preview["message"])
                                 back_to_sleep(stream, oww_model)
@@ -153,10 +136,8 @@ def pc_background_loop():
                             parsed["parameters"]["target"]         = contact_preview["matched_name"]
                             parsed["parameters"]["resolved_phone"] = contact_preview["phone"]
 
-                        elif intent in ["pause", "pause_music", "pause_media", "resume", "resume_music", "resume_media"]:
-                            print("WE MUST BE HERE SIR ")
+                        elif intent in ("pause", "resume"):
                             result = router.execute(parsed)
-
                             msg = result if isinstance(result, str) else result.get("message", "Done.") if isinstance(result, dict) else "Done."
                             speaker.say(msg)
                             back_to_sleep(stream, oww_model)
